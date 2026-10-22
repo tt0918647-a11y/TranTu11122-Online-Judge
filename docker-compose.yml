@@ -1,0 +1,17 @@
+services:
+  trantu:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-before-deployment}
+      JUDGE0_URL: ${JUDGE0_URL:-https://ce.judge0.com}
+      JUDGE0_TOKEN: ${JUDGE0_TOKEN:-}
+      CPP_LANGUAGE_ID: ${CPP_LANGUAGE_ID:-54}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+    volumes:
+      - trantu_data:/srv/trantu/instance
+    restart: unless-stopped
+volumes:
+  trantu_data:
