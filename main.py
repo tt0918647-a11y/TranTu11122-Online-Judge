@@ -226,8 +226,15 @@ def judge_one(code, stdin, expected):
             JUDGE0_URL + '/submissions/' + token + '?base64_encoded=false',
             headers=headers, timeout=10
         )
-        rr.raise_for_status()
-        result = rr.json()
+       if not rr.ok:
+    raise requests.RequestException(
+        'Judge0 GET lỗi HTTP '
+        + str(rr.status_code)
+        + ': '
+        + rr.text[:1000]
+    )
+
+result = rr.json()
         status = (result.get('status') or {}).get('id')
         if status not in (1, 2):
             return result
