@@ -6,7 +6,41 @@
 <script>
 const $=s=>document.querySelector(s);let problems=[],page=1,size=25,current=null,user=null,solved=[],registerMode=false;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(url,opts={}){let r=await fetch(url,{headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts});let d=await r.json().catch(()=>({error:'Phản hồi không hợp lệ'}));if(!r.ok)throw Error(d.error||'Có lỗi xảy ra');return d}
+async function api(url, opts = {}) {
+    let r;
+
+    try {
+        r = await fetch(url, {
+            ...opts,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(opts.headers || {})
+            }
+        });
+    } catch (e) {
+        throw Error('Không kết nối được máy chủ: ' + e.message);
+    }
+
+    const raw = await r.text();
+    let d;
+
+    try {
+        d = JSON.parse(raw);
+    } catch (e) {
+        throw Error(
+            'Phản hồi không phải JSON. HTTP ' +
+            r.status + ': ' +
+            (raw.slice(0, 500) || '(phản hồi rỗng)')
+        );
+    }
+
+    if (!r.ok) {
+        const detail = d.error || d.message || JSON.stringify(d);
+        throw Error('HTTP ' + r.status + ': ' + detail);
+    }
+
+    return d;
+}
 function setPage(p){['problemsPage','detailPage','rankingPage','submissionsPage','authPage'].forEach(id=>$('#'+id).classList.add('hidden'));const ids={problems:'problemsPage',detail:'detailPage',ranking:'rankingPage',submissions:'submissionsPage',auth:'authPage'};$('#'+ids[p]).classList.remove('hidden');document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));if(p==='ranking')loadRanking();if(p==='submissions')loadSubmissions()}
 function updateUser(){ $('#userLabel').textContent=user?.username||'Khách';$('#authBtn').textContent=user?'Đăng xuất':'Đăng nhập';$('#adminBtn').classList.toggle('hidden',!user?.is_admin); }
 function updateStats(){let scored=solved.filter(s=>s.best_score>0);$('#countSolved').textContent=scored.length;$('#countScore').textContent=scored.reduce((a,s)=>a+s.best_score,0);loadSubmissions(true).then(a=>$('#countSubs').textContent=a.length).catch(()=>$('#countSubs').textContent='0')}
