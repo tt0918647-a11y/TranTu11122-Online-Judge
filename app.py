@@ -94,6 +94,7 @@ def me():
     rows=db().execute('SELECT problem_id,best_score FROM solves WHERE user_id=?',(u['id'],)).fetchall()
     return jsonify(user={'username':u['username'],'is_admin':bool(u['is_admin'])},solved=[dict(x) for x in rows])
 
+
 def judge_one(code, stdin, expected):
     import base64
 
@@ -101,28 +102,23 @@ def judge_one(code, stdin, expected):
     if JUDGE0_TOKEN:
         headers['X-Auth-Token'] = JUDGE0_TOKEN
 
+    def encode64(s):
+        return base64.b64encode(s.encode('utf-8')).decode('ascii')
+
     body = {
-        'source_code': code,
+        'source_code': encode64(code),
         'language_id': CPP_LANGUAGE_ID,
-        'stdin': stdin,
-        'expected_output': expected,
+        'stdin': encode64(stdin),
+        'expected_output': encode64(expected),
         'cpu_time_limit': 2,
         'wall_time_limit': 5,
         'memory_limit': 128000
     }
 
-    encoded_body = {
-        key: (
-            base64.b64encode(value.encode('utf-8')).decode('ascii')
-            if isinstance(value, str) else value
-        )
-        for key, value in body.items()
-    }
-
     r = requests.post(
-        JUDGE0_URL + '/submissions',
+        JUDGE0_URL.rstrip('/') + '/submissions/',
         params={'base64_encoded': 'true', 'wait': 'false'},
-        json=encoded_body,
+        json=body,
         headers=headers,
         timeout=20
     )
@@ -142,12 +138,12 @@ def judge_one(code, stdin, expected):
     deadline = time.time() + 60
 
     while time.time() < deadline:
-       
         rr = requests.get(
-            JUDGE0_URL + '/submissions/' + token,
-        params={
-            'base64_encoded': 'true'
-        },
+            JUDGE0_URL.rstrip('/') + '/submissions/' + token,
+            params={
+                'base64_encoded': 'true',
+                'fields': 'token,status,stdout,stderr,compile_output,message,time,memory'
+            },
             headers=headers,
             timeout=15
         )
@@ -174,165 +170,10 @@ def judge_one(code, stdin, expected):
 
             return result
 
-        time.sleep(0.5)
+        time.sleep(1)
 
     return {
         'status': {'id': 2, 'description': 'Judge Timeout'},
         'message': 'Hết thời gian chờ kết quả từ Judge0.'
     }
 
-    
-@app.post('/api/submit')
-@login_required
-def submit():
-    u=current_user();d=request.get_json(force=True);pid=str(d.get('problem_id','')).upper();code=str(d.get('source_code',''))
-    if pid not in PROBLEM_MAP:return jsonify(error='Mã bài không tồn tại.'),404
-    if not code.strip():return jsonify(error='Mã nguồn đang trống.'),400
-    if len(code)>100000:return jsonify(error='Mã nguồn vượt quá 100 KB.'),400
-    p=PROBLEM_MAP[pid]; score=0; details=[]; final='Wrong Answer'
-   
-    try:
-        tests = p['tests']
-
-        results = []
-        for t in tests:
-            results.append(
-                judge_one(code, t['input'], t['output'])
-            )
-        for idx, result in enumerate(results):
-            t = tests[idx]
-            status = (result.get('status') or {}).get('description', 'Unknown')
-
-            if status == 'Accepted':
-                score += t['score']
-                details.append({
-                    'test': idx + 1,
-                    'status': 'Accepted',
-                    'score': t['score'],
-                    'time': result.get('time')
-                })
-            else:
-                details.append({
-                    'test': idx + 1,
-                    'status': status,
-                    'score': 0,
-                    'message': (
-                        result.get('compile_output')
-                        or result.get('stderr')
-                        or result.get('message')
-                        or ''
-                    )[:1200]
-                })
-
-                if status in ('Compilation Error', 'Compilation error'):
-                    final = 'Compilation Error'
-                elif status in ('Time Limit Exceeded', 'Memory Limit Exceeded'):
-                    final = status
-                else:
-                    final = 'Wrong Answer'
-
-        if score == 100:
-            final = 'Accepted'
-        elif score > 0:
-            final = 'Partially Accepted'
-
-    except requests.RequestException as e:
-        final = 'Judge Unavailable'
-        details = [{
-            'status': 'Không kết nối được Judge0.',
-            'message': str(e)[:500]
-        }]
-    except Exception as e:
-        final = 'Judge Unavailable'
-        details = [{
-            'status': 'Lỗi khi chấm bài.',
-            'message': str(e)[:500]
-        }]
-    db().execute('INSERT INTO submissions(user_id,problem_id,language,source_code,result,score,detail) VALUES(?,?,?,?,?,?,?)',(u['id'],pid,'C++17',code,final,score,json.dumps(details,ensure_ascii=False)));db().commit()
-    old=db().execute('SELECT best_score FROM solves WHERE user_id=? AND problem_id=?',(u['id'],pid)).fetchone()
-    if score>0 and (not old or score>old['best_score']):
-        db().execute('INSERT INTO solves(user_id,problem_id,best_score) VALUES(?,?,?) ON CONFLICT(user_id,problem_id) DO UPDATE SET best_score=excluded.best_score',(u['id'],pid,score));db().commit()
-    return jsonify(result=final,score=score,details=details)
-@app.get('/api/submissions')
-@login_required
-def submissions():
-    u=current_user();rows=db().execute('SELECT id,problem_id,language,result,score,created_at FROM submissions WHERE user_id=? ORDER BY id DESC LIMIT 200',(u['id'],)).fetchall();return jsonify([dict(r) for r in rows])
-@app.get('/api/ranking')
-def ranking():
-    rows=db().execute('SELECT u.username,COUNT(s.problem_id) solved,COALESCE(SUM(s.best_score),0) score FROM users u LEFT JOIN solves s ON s.user_id=u.id GROUP BY u.id ORDER BY score DESC,solved DESC,u.username ASC LIMIT 100').fetchall();return jsonify([dict(r) for r in rows])
-@app.get('/admin')
-def admin_page():
-    return render_template('admin.html')
-
-@app.get('/api/admin/overview')
-@admin_required
-def admin_overview():
-    con=db()
-    return jsonify(users=con.execute('SELECT COUNT(*) FROM users').fetchone()[0],
-                   submissions=con.execute('SELECT COUNT(*) FROM submissions').fetchone()[0],
-                   problems=len(PROBLEMS),
-                   accepted=con.execute("SELECT COUNT(*) FROM submissions WHERE result='Accepted'").fetchone()[0])
-
-@app.get('/api/admin/users')
-@admin_required
-def admin_users():
-    rows=db().execute('SELECT u.id,u.username,u.is_admin,u.created_at,COUNT(s.id) submission_count FROM users u LEFT JOIN submissions s ON s.user_id=u.id GROUP BY u.id ORDER BY u.id DESC LIMIT 500').fetchall()
-    return jsonify([dict(r) for r in rows])
-
-@app.post('/api/admin/users/<int:uid>/role')
-@admin_required
-def admin_user_role(uid):
-    d=request.get_json(force=True); make_admin=bool(d.get('is_admin'))
-    me=current_user()
-    if uid==me['id'] and not make_admin: return jsonify(error='Không thể tự hạ quyền admin đang đăng nhập.'),400
-    cur=db().execute('UPDATE users SET is_admin=? WHERE id=?',(1 if make_admin else 0,uid));db().commit()
-    if not cur.rowcount:return jsonify(error='Không tìm thấy tài khoản.'),404
-    return jsonify(ok=True)
-
-@app.get('/api/admin/submissions')
-@admin_required
-def admin_submissions():
-    rows=db().execute('SELECT s.id,u.username,s.problem_id,s.language,s.result,s.score,s.created_at FROM submissions s JOIN users u ON u.id=s.user_id ORDER BY s.id DESC LIMIT 500').fetchall()
-    return jsonify([dict(r) for r in rows])
-
-@app.get('/api/admin/problems')
-@admin_required
-def admin_problems():
-    return jsonify(PROBLEMS)
-
-@app.put('/api/admin/problems/<pid>')
-@admin_required
-def admin_update_problem(pid):
-    global PROBLEMS, PROBLEM_MAP
-    pid=pid.upper(); p=PROBLEM_MAP.get(pid)
-    if not p:return jsonify(error='Không tìm thấy bài.'),404
-    d=request.get_json(force=True)
-    for key in ('title','topic','difficulty','statement','input','output','constraints','sampleInput','sampleOutput','explanation'):
-        if key in d:
-            val=str(d[key]).strip()
-            if not val:return jsonify(error=f'Trường {key} không được để trống.'),400
-            p[key]=val
-    if 'tests' in d:
-        tests=d['tests']
-        if not isinstance(tests,list) or not tests:return jsonify(error='Danh sách test phải là mảng không rỗng.'),400
-        total=0
-        for t in tests:
-            if not isinstance(t,dict) or not all(k in t for k in ('input','output','score')):return jsonify(error='Mỗi test cần input, output và score.'),400
-            try: score=int(t['score'])
-            except (TypeError,ValueError):return jsonify(error='Điểm test phải là số nguyên.'),400
-            if score<0:return jsonify(error='Điểm test không được âm.'),400
-            t['score']=score;total+=score
-        if total!=100:return jsonify(error='Tổng điểm các test phải bằng 100.'),400
-        p['tests']=tests
-    # Atomic replace prevents a partially written problem file.
-    fd,tmp=tempfile.mkstemp(prefix='problems_',suffix='.json',dir=os.path.dirname(DATA))
-    try:
-        with os.fdopen(fd,'w',encoding='utf-8') as f:json.dump(PROBLEMS,f,ensure_ascii=False,indent=2)
-        os.replace(tmp,DATA)
-    finally:
-        if os.path.exists(tmp):os.remove(tmp)
-    return jsonify(ok=True,problem={k:v for k,v in p.items() if k not in ('function',)})
-
-@app.get('/api/health')
-def health():return jsonify(ok=True,problems=len(PROBLEMS),judge0=JUDGE0_URL)
-if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get('PORT','8080')),debug=False)
