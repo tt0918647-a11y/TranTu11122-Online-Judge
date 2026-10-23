@@ -1,5 +1,6 @@
 import os, json, time, sqlite3, requests, re, tempfile
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, render_template, request, jsonify, session, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -186,19 +187,67 @@ def submit():
     if not code.strip():return jsonify(error='Mã nguồn đang trống.'),400
     if len(code)>100000:return jsonify(error='Mã nguồn vượt quá 100 KB.'),400
     p=PROBLEM_MAP[pid]; score=0; details=[]; final='Wrong Answer'
+   
     try:
-        for idx,t in enumerate(p['tests']):
-            result=judge_one(code,t['input'],t['output'])
-            status=(result.get('status') or {}).get('description','Unknown')
-            if status=='Accepted':score+=t['score'];details.append({'test':idx+1,'status':'Accepted','score':t['score'],'time':result.get('time')})
+        tests = p['tests']
+
+        with ThreadPoolExecutor(max_workers=min(4, len(tests))) as pool:
+            futures = [
+                pool.submit(judge_one, code, t['input'], t['output'])
+                for t in tests
+            ]
+            results = [f.result() for f in futures]
+
+        for idx, result in enumerate(results):
+            t = tests[idx]
+            status = (result.get('status') or {}).get('description', 'Unknown')
+
+            if status == 'Accepted':
+                score += t['score']
+                details.append({
+                    'test': idx + 1,
+                    'status': 'Accepted',
+                    'score': t['score'],
+                    'time': result.get('time')
+                })
             else:
-                details.append({'test':idx+1,'status':status,'score':0,'message':(result.get('compile_output') or result.get('stderr') or result.get('message') or '')[:1200]})
-                if status in ('Compilation Error','Compilation error'):final='Compilation Error'
-                elif status in ('Time Limit Exceeded','Memory Limit Exceeded'):final=status
-                else:final='Wrong Answer'
-        if score==100:final='Accepted'
-        elif score>0:final='Partially Accepted'
+                details.append({
+                    'test': idx + 1,
+                    'status': status,
+                    'score': 0,
+                    'message': (
+                        result.get('compile_output')
+                        or result.get('stderr')
+                        or result.get('message')
+                        or ''
+                    )[:1200]
+                })
+
+                if status in ('Compilation Error', 'Compilation error'):
+                    final = 'Compilation Error'
+                elif status in ('Time Limit Exceeded', 'Memory Limit Exceeded'):
+                    final = status
+                else:
+                    final = 'Wrong Answer'
+
+        if score == 100:
+            final = 'Accepted'
+        elif score > 0:
+            final = 'Partially Accepted'
+
     except requests.RequestException as e:
+        final = 'Judge Unavailable'
+        details = [{
+            'status': 'Không kết nối được Judge0.',
+            'message': str(e)[:500]
+        }]
+    except Exception as e:
+        final = 'Judge Unavailable'
+        details = [{
+            'status': 'Lỗi khi chấm bài.',
+            'message': str(e)[:500]
+        }]
+
         final='Judge Unavailable';details=[{'status':'Không kết nối được Judge0. Kiểm tra JUDGE0_URL, mạng hoặc API key.','message':str(e)[:500]}]
     db().execute('INSERT INTO submissions(user_id,problem_id,language,source_code,result,score,detail) VALUES(?,?,?,?,?,?,?)',(u['id'],pid,'C++17',code,final,score,json.dumps(details,ensure_ascii=False)));db().commit()
     old=db().execute('SELECT best_score FROM solves WHERE user_id=? AND problem_id=?',(u['id'],pid)).fetchone()
