@@ -247,8 +247,6 @@ def submit():
             'status': 'Lỗi khi chấm bài.',
             'message': str(e)[:500]
         }]
-
-        final='Judge Unavailable';details=[{'status':'Không kết nối được Judge0. Kiểm tra JUDGE0_URL, mạng hoặc API key.','message':str(e)[:500]}]
     db().execute('INSERT INTO submissions(user_id,problem_id,language,source_code,result,score,detail) VALUES(?,?,?,?,?,?,?)',(u['id'],pid,'C++17',code,final,score,json.dumps(details,ensure_ascii=False)));db().commit()
     old=db().execute('SELECT best_score FROM solves WHERE user_id=? AND problem_id=?',(u['id'],pid)).fetchone()
     if score>0 and (not old or score>old['best_score']):
