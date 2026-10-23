@@ -177,19 +177,7 @@ def judge_one(code, stdin, expected):
         'message': 'Hết thời gian chờ kết quả từ Judge0.'
     }
 
-    headers={'Content-Type':'application/json'}
-    if JUDGE0_TOKEN:headers['X-Auth-Token']=JUDGE0_TOKEN
-    body={'source_code':code,'language_id':CPP_LANGUAGE_ID,'stdin':stdin,'expected_output':expected,'cpu_time_limit':2,'wall_time_limit':5,'memory_limit':128000,'enable_network':False}
-    r=requests.post(JUDGE0_URL+'/submissions?base64_encoded=false&wait=false',json=body,headers=headers,timeout=20)
-    r.raise_for_status(); token=r.json().get('token')
-    if not token: raise requests.RequestException('Judge0 không trả submission token.')
-    deadline=time.time()+25
-    while time.time()<deadline:
-        rr=requests.get(JUDGE0_URL+'/submissions/'+token+'?base64_encoded=false',headers=headers,timeout=10)
-        rr.raise_for_status(); result=rr.json(); status=(result.get('status') or {}).get('id')
-        if status not in (1,2): return result
-        time.sleep(0.5)
-    return {'status':{'id':2,'description':'Judge Timeout'},'message':'Hết thời gian chờ kết quả từ Judge0.'}
+    
 @app.post('/api/submit')
 @login_required
 def submit():
