@@ -142,11 +142,15 @@ def judge_one(code, stdin, expected):
     deadline = time.time() + 25
 
     while time.time() < deadline:
+       
         rr = requests.get(
             JUDGE0_URL + '/submissions/' + token,
-            params={'base64_encoded': 'true'},
+            params={
+                'base64_encoded': 'true',
+                'fields': 'token,status,stdout,stderr,compile_output,message,time,memory'
+            },
             headers=headers,
-            timeout=10
+            timeout=15
         )
 
         if not rr.ok:
