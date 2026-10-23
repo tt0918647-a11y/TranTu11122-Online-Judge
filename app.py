@@ -139,7 +139,7 @@ def judge_one(code, stdin, expected):
             'Judge0 không trả submission token.'
         )
 
-    deadline = time.time() + 25
+    deadline = time.time() + 60
 
     while time.time() < deadline:
        
