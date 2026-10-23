@@ -95,6 +95,7 @@ def me():
     return jsonify(user={'username':u['username'],'is_admin':bool(u['is_admin'])},solved=[dict(x) for x in rows])
 
 
+
 def judge_one(code, stdin, expected):
     import base64
 
@@ -157,6 +158,13 @@ def judge_one(code, stdin, expected):
         result = rr.json()
         status = (result.get('status') or {}).get('id')
 
+        print(
+            "JUDGE0 STATUS:",
+            status,
+            (result.get('status') or {}).get('description'),
+            flush=True
+        )
+
         if status not in (1, 2):
             for key in ('stdout', 'stderr', 'compile_output', 'message'):
                 value = result.get(key)
@@ -176,4 +184,3 @@ def judge_one(code, stdin, expected):
         'status': {'id': 2, 'description': 'Judge Timeout'},
         'message': 'Hết thời gian chờ kết quả từ Judge0.'
     }
-
