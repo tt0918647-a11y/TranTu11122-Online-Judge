@@ -92,7 +92,91 @@ def me():
     if not u:return jsonify(user=None)
     rows=db().execute('SELECT problem_id,best_score FROM solves WHERE user_id=?',(u['id'],)).fetchall()
     return jsonify(user={'username':u['username'],'is_admin':bool(u['is_admin'])},solved=[dict(x) for x in rows])
-def judge_one(code,stdin,expected):
+
+def judge_one(code, stdin, expected):
+    import base64
+
+    headers = {'Content-Type': 'application/json'}
+    if JUDGE0_TOKEN:
+        headers['X-Auth-Token'] = JUDGE0_TOKEN
+
+    body = {
+        'source_code': code,
+        'language_id': CPP_LANGUAGE_ID,
+        'stdin': stdin,
+        'expected_output': expected,
+        'cpu_time_limit': 2,
+        'wall_time_limit': 5,
+        'memory_limit': 128000
+    }
+
+    encoded_body = {
+        key: (
+            base64.b64encode(value.encode('utf-8')).decode('ascii')
+            if isinstance(value, str) else value
+        )
+        for key, value in body.items()
+    }
+
+    r = requests.post(
+        JUDGE0_URL + '/submissions',
+        params={'base64_encoded': 'true', 'wait': 'false'},
+        json=encoded_body,
+        headers=headers,
+        timeout=20
+    )
+
+    if not r.ok:
+        raise requests.RequestException(
+            'Judge0 POST HTTP ' + str(r.status_code)
+            + ': ' + r.text[:1000]
+        )
+
+    token = r.json().get('token')
+    if not token:
+        raise requests.RequestException(
+            'Judge0 không trả submission token.'
+        )
+
+    deadline = time.time() + 25
+
+    while time.time() < deadline:
+        rr = requests.get(
+            JUDGE0_URL + '/submissions/' + token,
+            params={'base64_encoded': 'true'},
+            headers=headers,
+            timeout=10
+        )
+
+        if not rr.ok:
+            raise requests.RequestException(
+                'Judge0 GET HTTP ' + str(rr.status_code)
+                + ': ' + rr.text[:1000]
+            )
+
+        result = rr.json()
+        status = (result.get('status') or {}).get('id')
+
+        if status not in (1, 2):
+            for key in ('stdout', 'stderr', 'compile_output', 'message'):
+                value = result.get(key)
+                if value:
+                    try:
+                        result[key] = base64.b64decode(
+                            value, validate=True
+                        ).decode('utf-8')
+                    except (ValueError, UnicodeDecodeError):
+                        pass
+
+            return result
+
+        time.sleep(0.5)
+
+    return {
+        'status': {'id': 2, 'description': 'Judge Timeout'},
+        'message': 'Hết thời gian chờ kết quả từ Judge0.'
+    }
+
     headers={'Content-Type':'application/json'}
     if JUDGE0_TOKEN:headers['X-Auth-Token']=JUDGE0_TOKEN
     body={'source_code':code,'language_id':CPP_LANGUAGE_ID,'stdin':stdin,'expected_output':expected,'cpu_time_limit':2,'wall_time_limit':5,'memory_limit':128000,'enable_network':False}
