@@ -145,10 +145,9 @@ def judge_one(code, stdin, expected):
        
         rr = requests.get(
             JUDGE0_URL + '/submissions/' + token,
-            params={
-                'base64_encoded': 'true',
-                'fields': 'token,status,stdout,stderr,compile_output,message,time,memory'
-            },
+        params={
+            'base64_encoded': 'true'
+        },
             headers=headers,
             timeout=15
         )
