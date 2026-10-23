@@ -194,13 +194,11 @@ def submit():
     try:
         tests = p['tests']
 
-        with ThreadPoolExecutor(max_workers=min(4, len(tests))) as pool:
-            futures = [
-                pool.submit(judge_one, code, t['input'], t['output'])
-                for t in tests
-            ]
-            results = [f.result() for f in futures]
-
+        results = []
+        for t in tests:
+            results.append(
+                judge_one(code, t['input'], t['output'])
+            )
         for idx, result in enumerate(results):
             t = tests[idx]
             status = (result.get('status') or {}).get('description', 'Unknown')
